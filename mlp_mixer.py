@@ -1,3 +1,43 @@
+"""
+Re-implementation of the MLP-Mixer blendshapes prediction model from
+MediaPipe. See README.md for more details.
+
+The MediaPipeBlendshapesMLPMixer class' forward method has an expected
+input shape of: (batch_size, 146, 2).
+146 here refers to this subset of face mesh landmarks output by MediaPipe:
+0,   1,   4,   5,   6,   7,   8,   10,  13,  14,  17,  21,  33,  37,  39,
+40,  46,  52,  53,  54,  55,  58,  61,  63,  65,  66,  67,  70,  78,  80,
+81,  82,  84,  87,  88,  91,  93,  95,  103, 105, 107, 109, 127, 132, 133,
+136, 144, 145, 146, 148, 149, 150, 152, 153, 154, 155, 157, 158, 159, 160,
+161, 162, 163, 168, 172, 173, 176, 178, 181, 185, 191, 195, 197, 234, 246,
+249, 251, 263, 267, 269, 270, 276, 282, 283, 284, 285, 288, 291, 293, 295,
+296, 297, 300, 308, 310, 311, 312, 314, 317, 318, 321, 323, 324, 332, 334,
+336, 338, 356, 361, 362, 365, 373, 374, 375, 377, 378, 379, 380, 381, 382,
+384, 385, 386, 387, 388, 389, 390, 397, 398, 400, 402, 405, 409, 415, 454,
+466, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477
+
+The 2 represents the x and y coordinates of the landmarks.
+The normalized landmarks that are output by mediapipe need to be multiplied
+by the image height and image width before being passed to this model.
+The scale doesn't matter, as it is normalized out by this model, but the
+aspect ratio of the x to y landmark coordinates needs to be correct.
+
+Example usage:
+```
+blendshape_model = MediaPipeBlendshapesMLPMixer()
+mesh_detector = init_mpipe_blendshapes_model()
+mesh_results = mesh_detector.detect(image_mp)
+landmarks_np = []
+for face_idx in range(len(mesh_results.face_landmarks)):
+    landmarks_np.append(np.array([[i.x, i.y, i.z] for i in mesh_results.face_landmarks[face_idx]]))
+landmarks_np = np.array(landmarks_np).astype('float32')
+lmks_tensor = landmarks_np[:1, BLENDSHAPE_MODEL_LANDMARKS_SUBSET, :2]
+img_size = np.array([image_mp.width, image_mp.height])[None, None].astype('float32')
+scaled_lmks_tensor = torch.from_numpy(lmks_tensor * img_size)
+output = blendshape_model(scaled_lmks_tensor)
+```
+"""
+
 import torch
 import torch.nn as nn
 
@@ -48,6 +88,7 @@ class MediaPipeBlendshapesMLPMixer(nn.Module):
         hidden_units_mlp2=256,
         num_blocks=4,
         dropout_rate=0.0,
+        output_dim=52,
     ):
         super().__init__()
         self.conv1 = nn.Conv2d(146, 96, kernel_size=1)
@@ -65,23 +106,9 @@ class MediaPipeBlendshapesMLPMixer(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
-        self.output_mlp = nn.Conv2d(in_dim, 52, 1)
+        self.output_mlp = nn.Conv2d(in_dim, output_dim, 1)
 
     def forward(self, x):
-        """
-        Expected input shape: (batch_size, 146, 2). This 146 represents the
-        following subset of face mesh landmarks output by MediaPipe:
-        0,   1,   4,   5,   6,   7,   8,   10,  13,  14,  17,  21,  33,  37,  39,
-        40,  46,  52,  53,  54,  55,  58,  61,  63,  65,  66,  67,  70,  78,  80,
-        81,  82,  84,  87,  88,  91,  93,  95,  103, 105, 107, 109, 127, 132, 133,
-        136, 144, 145, 146, 148, 149, 150, 152, 153, 154, 155, 157, 158, 159, 160,
-        161, 162, 163, 168, 172, 173, 176, 178, 181, 185, 191, 195, 197, 234, 246,
-        249, 251, 263, 267, 269, 270, 276, 282, 283, 284, 285, 288, 291, 293, 295,
-        296, 297, 300, 308, 310, 311, 312, 314, 317, 318, 321, 323, 324, 332, 334,
-        336, 338, 356, 361, 362, 365, 373, 374, 375, 377, 378, 379, 380, 381, 382,
-        384, 385, 386, 387, 388, 389, 390, 397, 398, 400, 402, 405, 409, 415, 454,
-        466, 468, 469, 470, 471, 472, 473, 474, 475, 476, 477
-        """
         x = x - x.mean(1, keepdim=True)
         x = x / x.norm(dim=2, keepdim=True).mean(1, keepdim=True)
         x = x.unsqueeze(-2) * 0.5
@@ -95,11 +122,11 @@ class MediaPipeBlendshapesMLPMixer(nn.Module):
         x = x[:, :, :, :1]
         x = self.output_mlp(x)
         x = torch.sigmoid(x)
-        return x.squeeze()
+        return x#.squeeze()
 
 
 if __name__ == "__main__":
-    model = MLPMixer()
+    model = MediaPipeBlendshapesMLPMixer()
     print(model)
     input_tensor = torch.randn(1, 146, 2)
     output = model(input_tensor)
