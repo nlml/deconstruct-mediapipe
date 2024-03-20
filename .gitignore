@@ -1,5 +1,5 @@
 # MediaPipe Face Mesh files
-# face_landmarker_v2_with_blendshapes.task
+face_landmarker_v2_with_blendshapes.task
 face_blendshapes.pth
 face_blendshapes.tflite
 face_detector.tflite
